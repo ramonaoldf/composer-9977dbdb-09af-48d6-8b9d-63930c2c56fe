@@ -1,14 +1,23 @@
 <?php
+
 namespace Bootstrap\Console;
 
 use Bootstrap\Container\Application;
 use Illuminate\Console\Events\ArtisanStarting;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Support\ServiceProvider;
+use Illuminate\Database\Console\Migrations\FreshCommand;
+use Illuminate\Database\Console\Migrations\InstallCommand;
+use Illuminate\Database\Console\Migrations\MigrateCommand;
+use Illuminate\Database\Console\Migrations\MigrateMakeCommand;
+use Illuminate\Database\Console\Migrations\RefreshCommand;
+use Illuminate\Database\Console\Migrations\ResetCommand;
+use Illuminate\Database\Console\Migrations\RollbackCommand;
+use Illuminate\Database\Console\Migrations\StatusCommand;
+use Illuminate\Database\Console\Seeds\SeedCommand;
+use Illuminate\Database\Migrations\DatabaseMigrationRepository;
 use Illuminate\Support\Facades\Facade;
-use Symfony\Component\Console\Input\ArrayInput;
-use Symfony\Component\Console\Output\BufferedOutput;
+use Illuminate\Support\ServiceProvider;
 
 class Artisan extends \Illuminate\Console\Application
 {
@@ -20,9 +29,9 @@ class Artisan extends \Illuminate\Console\Application
     /**
      * Create a new Artisan console application.
      *
-     * @param  \Illuminate\Contracts\Container\Container $laravel
-     * @param  \Illuminate\Contracts\Events\Dispatcher $events
-     * @param  string $version
+     * @param \Illuminate\Contracts\Container\Container $laravel
+     * @param \Illuminate\Contracts\Events\Dispatcher $events
+     * @param string $version
      * @return void
      */
     public function __construct(Container $laravel, Dispatcher $events, $version)
@@ -41,8 +50,9 @@ class Artisan extends \Illuminate\Console\Application
      */
     public static function start($app = null)
     {
-        if (static::$instance)
+        if (static::$instance) {
             return static::$instance;
+        }
 
         return static::make();
     }
@@ -60,7 +70,7 @@ class Artisan extends \Illuminate\Console\Application
             /** @var Application $app */
             $app = Facade::getFacadeApplication();
             /** @var Artisan $console */
-            with($console = new static($app, $app['events'], '5.2.*'))
+            with($console = new static($app, $app['events'], '5.8.*'))
                 //->setExceptionHandler($app['exception'])
                 ->setAutoExit(false);
 
@@ -73,7 +83,22 @@ class Artisan extends \Illuminate\Console\Application
             $console->add(new EnvironmentCommand());
             $console->add(new VendorPublishCommand($app['files']));
 
-            $app['events']->fire(new ArtisanStarting($console));
+            // DB Migration Commands
+            $console->add(new InstallCommand(new DatabaseMigrationRepository($app['db'], "migrations")));
+            $console->add(new MigrateCommand($app['migrator']));
+            $console->add(new MigrateMakeCommand($app['migration.creator'], $app['composer']));
+            $console->add(new StatusCommand($app['migrator']));
+            $console->add(new RefreshCommand());
+            $console->add(new ResetCommand($app['migrator']));
+            $console->add(new RollbackCommand($app['migrator']));
+            $console->add(new FreshCommand());
+
+            // DB Seed Commands
+            $console->add(new SeedCommand($app['db']));
+            $console->add(new SeedMakeCommand($app['files'], $app['composer']));
+
+            $app['events']->dispatch(new ArtisanStarting($console));
+            $console->bootstrap();
             static::$instance = $console;
         }
 
@@ -86,7 +111,7 @@ class Artisan extends \Illuminate\Console\Application
         foreach ($providers as $class) {
             /** @var ServiceProvider $instance */
             $instance = new $class($app);
-            if (method_exists($instance, 'boot')){
+            if (method_exists($instance, 'boot')) {
                 $instance->boot();
             }
             $instance->register();
