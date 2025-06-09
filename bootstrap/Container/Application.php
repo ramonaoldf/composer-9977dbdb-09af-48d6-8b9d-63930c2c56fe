@@ -7,7 +7,7 @@ use Closure;
 class Application extends Container
 {
 
-    const VERSION = 5.2;
+    const VERSION = 5.8;
     
     /**
      * The base path of the application installation.
@@ -27,6 +27,11 @@ class Application extends Container
         $this->basePath = $basePath;
         $this->bootstrapContainer();
         //$this->registerErrorHandling();
+    }
+
+    public static function version()
+    {
+        return static::VERSION;
     }
 
     /**
@@ -188,5 +193,15 @@ class Application extends Container
     public function error(Closure $callback)
     {
         $this['exception']->error($callback);
+    }
+
+    /**
+     * Get Application Namespace
+     *
+     * @return int|string
+     */
+    public function getNamespace()
+    {
+        return getAppNamespace();
     }
 } 
