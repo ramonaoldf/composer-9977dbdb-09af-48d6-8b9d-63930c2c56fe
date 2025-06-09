@@ -1,4 +1,5 @@
 <?php
+
 define('APP_START', microtime(true));
 /*
 |--------------------------------------------------------------------------
@@ -17,14 +18,20 @@ require BASE . '/vendor/autoload.php';
 
 use Bootstrap\Config\Config;
 use Bootstrap\Container\Application;
+use Illuminate\Cache\CacheManager;
+use Illuminate\Database\Capsule\Manager as Database;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Events\Dispatcher;
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Queue\Capsule\Manager as Queue;
-use Illuminate\Database\Capsule\Manager as Database;
 use Illuminate\Support\Facades\Facade;
-use Illuminate\Events\Dispatcher;
-use Illuminate\Cache\CacheManager;
-use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
+use Luracast\Restler\Defaults;
+use Luracast\Restler\Format\HtmlFormat;
+use Luracast\Restler\Scope;
+use Luracast\Restler\UI\Bootstrap3Form;
+use Luracast\Restler\UI\Forms;
 
 
 /*
@@ -33,12 +40,12 @@ use Illuminate\Support\Str;
 |--------------------------------------------------------------------------
 */
 
-if ( ! function_exists('app')) {
+if (!function_exists('app')) {
     /**
      * Get the available container instance.
      *
      * @param string $make
-     * @param array  $parameters
+     * @param array $parameters
      *
      * @return mixed|Application
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -53,12 +60,12 @@ if ( ! function_exists('app')) {
     }
 }
 
-if ( ! function_exists('env')) {
+if (!function_exists('env')) {
     /**
      * Gets the value of an environment variable. Supports boolean, empty and null.
      *
      * @param string $key
-     * @param mixed  $default
+     * @param mixed $default
      *
      * @return mixed
      */
@@ -90,52 +97,13 @@ if ( ! function_exists('env')) {
     }
 }
 
-if ( ! function_exists('base_path')) {
-    /**
-     * Get the path to the storage folder.
-     *
-     * @param string $path
-     *
-     * @return string
-     */
-    function base_path($path = '')
-    {
-        return BASE . ($path ? DIRECTORY_SEPARATOR . $path : $path);
-    }
-}
-
-if ( ! function_exists('storage_path')) {
-    /**
-     * Get the path to the storage folder.
-     *
-     * @param string $path
-     *
-     * @return string
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    function storage_path($path = '')
-    {
-        return app('path.storage') . ($path ? DIRECTORY_SEPARATOR . $path : $path);
-    }
-}
-
-
-if ( ! function_exists('config_path')) {
-
-    function config_path($path = '')
-    {
-        return BASE . '/app/config' . ($path ? DIRECTORY_SEPARATOR . $path : $path);
-    }
-}
-
-if ( ! function_exists('getAppNamespace')) {
-
+if (!function_exists('getAppNamespace')) {
     function getAppNamespace()
     {
         $composer = json_decode(file_get_contents(BASE . '/composer.json'), true);
         foreach ((array)data_get($composer, 'autoload.psr-4') as $namespace => $path) {
             foreach ((array)$path as $pathChoice) {
-                if (realpath(BASE . '/' . 'bootstrap') == realpath(BASE . '/' . $pathChoice)) {
+                if (realpath(BASE . '/' . 'app') == realpath(BASE . '/' . $pathChoice)) {
                     return $namespace;
                 }
             }
@@ -157,119 +125,18 @@ $app = new Application();
 |
 */
 if (file_exists(BASE . '/.env')) {
-    Dotenv::load(BASE);
+    $dotenv = Dotenv\Dotenv::createMutable(BASE);
+    $dotenv->load();
 }
 
-$env = $app->detectEnvironment(function () {
-    return getenv('APP_ENV') ?: 'development';
-});
+$env = $app->detectEnvironment(
+    function () {
+        return getenv('APP_ENV') ?: 'development';
+    }
+);
 
 $app['app'] = $app;
 Facade::setFacadeApplication($app);
-
-$app->instance('config', new Config(BASE . '/app/config', $env));
-
-$app->singleton('events', function () use ($app) {
-    return new Dispatcher($app);
-});
-
-$app->singleton('files', function () use ($app) {
-    return new Filesystem();
-});
-
-$app->singleton('cache', function () use ($app) {
-    return new CacheManager($app);
-});
-
-$app->singleton('db', function () use ($app) {
-    $config                     = $app['config'];
-    $default                    = $config['database.default'];
-    $fetch                      = $config['database.fetch'];
-    $db                         = new Database($app);
-    $config['database.fetch']   = $fetch;
-    $config['database.default'] = $default;
-    $db->addConnection($config['database.connections'][$default]);
-    $db->setEventDispatcher($app['events']);
-    $db->setAsGlobal();
-    $db->bootEloquent();
-
-    return $db->getDatabaseManager();
-});
-
-$app->singleton('queue', function () use ($app) {
-    $config                      = $app['queue'];
-    $default                     = $config['queue.default'];
-    $connections                 = $config['queue.connections'];
-    $config['queue.default']     = $default;
-    $config['queue.connections'] = $connections;
-    $queue                       = new Queue;
-    $queue->addConnection($config['queue.connections'][$default]);
-    $queue->setAsGlobal();
-
-    return $queue->getQueueManager();
-});
-
-$app->singleton('queue.connection', function () use ($app) {
-    return $app['queue']->connection();
-});
-
-if ( ! function_exists('config')) {
-    function config($path, $default = null)
-    {
-        if (is_string($path)) {
-            return $app['config'][$path] ?? $default;
-        }
-    }
-}
-
-/*
-|--------------------------------------------------------------------------
-| Pagination Support
-|--------------------------------------------------------------------------
-*/
-Paginator::currentPathResolver(function () {
-    return strtok($_SERVER["REQUEST_URI"], '?');
-});
-
-Paginator::currentPageResolver(function ($pageName = 'page') {
-    if (isset($_REQUEST[$pageName])) {
-        $page = $_REQUEST[$pageName];
-        if (filter_var($page, FILTER_VALIDATE_INT) !== false && (int)$page >= 1) {
-            return $page;
-        }
-    }
-
-    return 1;
-});
-
-/*
-|--------------------------------------------------------------------------
-| Redis Support
-|--------------------------------------------------------------------------
-*/
-$app->singleton('redis', function () use ($app) {
-    return new Illuminate\Redis\Database($app['config']['database.redis']);
-});
-
-/*
-|--------------------------------------------------------------------------
-| Register The Aliased Auto Loader
-|--------------------------------------------------------------------------
-|
-| We register an auto-loader "before" the Composer loader that can load
-| aliased classes with out their namespaces. We'll add it to the stack here.
-|
-*/
-
-spl_autoload_register(function ($className) use ($app) {
-    if (isset($app['config']['app.aliases'][$className])) {
-        $app['db']; //lazy initialization of DB
-
-        return class_alias($app['config']['app.aliases'][$className], $className);
-    }
-
-    return false;
-}, true, true);
 
 /*
 |--------------------------------------------------------------------------
@@ -283,3 +150,204 @@ spl_autoload_register(function ($className) use ($app) {
 */
 
 $app->bindInstallPaths(require __DIR__ . '/paths.php');
+
+if (!function_exists('base_path')) {
+    function base_path($path = '')
+    {
+        return app('path.base') . ($path ? DIRECTORY_SEPARATOR . $path : $path);
+    }
+}
+
+if (!function_exists('storage_path')) {
+    function storage_path($path = '')
+    {
+        return app('path.storage') . ($path ? DIRECTORY_SEPARATOR . $path : $path);
+    }
+}
+
+if (!function_exists('config_path')) {
+    function config_path($path = '')
+    {
+        return app('path.config') . ($path ? DIRECTORY_SEPARATOR . $path : $path);
+    }
+}
+
+if (!function_exists('database_path')) {
+    function database_path($path = '')
+    {
+        return app('path.database') . ($path ? DIRECTORY_SEPARATOR . $path : $path);
+    }
+}
+
+$app->instance('config', new Config(app('path.config'), $env));
+
+$app->singleton(
+    'events',
+    function () use ($app) {
+        return new Dispatcher($app);
+    }
+);
+$app->singleton(
+    \Illuminate\Contracts\Events\Dispatcher::class,
+    function () use ($app) {
+        return $app['events'];
+    }
+);
+
+$app->singleton(
+    'files',
+    function () use ($app) {
+        return new Filesystem();
+    }
+);
+
+$app->singleton(
+    'cache',
+    function () use ($app) {
+        return new CacheManager($app);
+    }
+);
+
+$app->singleton(
+    'db',
+    function () use ($app) {
+        $config = $app['config'];
+        $default = $config['database.default'];
+        $fetch = $config['database.fetch'];
+        $db = new Database($app);
+        $config['database.fetch'] = $fetch;
+        $config['database.default'] = $default;
+        $db->addConnection($config['database.connections'][$default]);
+        $db->setEventDispatcher($app['events']);
+        $db->setAsGlobal();
+        $db->bootEloquent();
+
+        $db->getDatabaseManager()->extend(
+            'mongodb',
+            function ($config, $name) {
+                $config['name'] = $name;
+                return new Jenssegers\Mongodb\Connection($config);
+            }
+        );
+        return $db->getDatabaseManager();
+    }
+);
+
+$app->singleton(
+    'queue',
+    function () use ($app) {
+        $config = $app['queue'];
+        $default = $config['queue.default'];
+        $connections = $config['queue.connections'];
+        $config['queue.default'] = $default;
+        $config['queue.connections'] = $connections;
+        $queue = new Queue;
+        $queue->addConnection($config['queue.connections'][$default]);
+        $queue->setAsGlobal();
+
+        return $queue->getQueueManager();
+    }
+);
+
+$app->singleton(
+    'queue.connection',
+    function () use ($app) {
+        return $app['queue']->connection();
+    }
+);
+
+if (!function_exists('config')) {
+    function config($path, $default = null)
+    {
+        if (is_string($path)) {
+            return $app['config'][$path] ?? $default;
+        }
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Pagination Support
+|--------------------------------------------------------------------------
+*/
+Paginator::currentPathResolver(
+    function () {
+        return strtok($_SERVER["REQUEST_URI"], '?');
+    }
+);
+
+Paginator::currentPageResolver(
+    function ($pageName = 'page') {
+        if (isset($_REQUEST[$pageName])) {
+            $page = $_REQUEST[$pageName];
+            if (filter_var($page, FILTER_VALIDATE_INT) !== false && (int)$page >= 1) {
+                return $page;
+            }
+        }
+
+        return 1;
+    }
+);
+
+/*
+|--------------------------------------------------------------------------
+| Redis Support
+|--------------------------------------------------------------------------
+*/
+$app->singleton(
+    'redis',
+    function () use ($app) {
+        return new Illuminate\Redis\Database($app['config']['database.redis']);
+    }
+);
+
+/*
+|--------------------------------------------------------------------------
+| Register The Aliased Auto Loader
+|--------------------------------------------------------------------------
+|
+| We register an auto-loader "before" the Composer loader that can load
+| aliased classes with out their namespaces. We'll add it to the stack here.
+|
+*/
+
+spl_autoload_register(
+    function ($className) use ($app) {
+        if (Model::class === $className) {
+            include __DIR__ . '/../vendor/illuminate/database/Eloquent/Model.php';
+            $app['db'];
+            return true;
+        }
+        if (Jenssegers\Mongodb\Eloquent\Model::class === $className) {
+            include __DIR__ . '/../vendor/jenssegers/mongodb/src/Jenssegers/Mongodb/Eloquent/Model.php';
+            $app['db'];
+            return true;
+        }
+        if (isset($app['config']['app.aliases'][$className])) {
+            $app['db']; //lazy initialization of DB
+            return class_alias($app['config']['app.aliases'][$className], $className);
+        }
+
+        return false;
+    },
+    true,
+    true
+);
+
+/*
+|--------------------------------------------------------------------------
+| Configure Restler to adapt to Laravel structure
+|--------------------------------------------------------------------------
+*/
+
+//$app['config']['app.aliases'] += Scope::$classAliases + ['Scope' => 'Luracast\Restler\Scope'];
+//
+//Defaults::$cacheDirectory = $app['config']['cache.path'];
+//HtmlFormat::$viewPath = $app['path'] . '/views';
+//HtmlFormat::$cacheDirectory = $app['path.storage'] . '/views';
+//
+//HtmlFormat::$template = 'blade';
+////Forms::$style = FormStyles::$bootstrap3; // for v4 and below
+//Forms::setStyles(new Bootstrap3Form); // for v5
+//
+//include BASE . '/routes/api.php';

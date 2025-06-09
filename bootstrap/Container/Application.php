@@ -1,14 +1,15 @@
 <?php
+
 namespace Bootstrap\Container;
 
-use Illuminate\Container\Container;
 use Closure;
+use Illuminate\Container\Container;
 
 class Application extends Container
 {
 
-    const VERSION = 5.8;
-    
+    const VERSION = '8';
+
     /**
      * The base path of the application installation.
      *
@@ -19,72 +20,16 @@ class Application extends Container
     /**
      * Create a new Lumen application instance.
      *
-     * @param  string|null $basePath
+     * @param string|null $basePath
+     *
      * @return void
      */
-    public function __construct($basePath = null)
+    public function __construct(string $basePath = null)
     {
         $this->basePath = $basePath;
         $this->bootstrapContainer();
         //$this->registerErrorHandling();
     }
-
-    public static function version()
-    {
-        return static::VERSION;
-    }
-
-    /**
-     * Get the path to the application "app" directory.
-     *
-     * @return string
-     */
-    public function path()
-    {
-        return $this->basePath . DIRECTORY_SEPARATOR . 'app';
-    }
-
-    /**
-     * Get the base path for the application.
-     *
-     * @param  string|null $path
-     * @return string
-     */
-    public function basePath($path = null)
-    {
-        if (isset($this->basePath)) {
-            return $this->basePath . ($path ? '/' . $path : $path);
-        }
-        if ($this->runningInConsole()) {
-            $this->basePath = getcwd();
-        } else {
-            $this->basePath = realpath(getcwd() . '/../');
-        }
-
-        return $this->basePath($path);
-    }
-
-    /**
-     * Get the database path for the application.
-     *
-     * @return string
-     */
-    public function databasePath()
-    {
-        return $this->basePath() . '/app/database';
-    }
-
-    /**
-     * Get the storage path for the application.
-     *
-     * @param  string|null $path
-     * @return string
-     */
-    public function storagePath($path = null)
-    {
-        return $this->basePath() . 'app/storage' . ($path ? '/' . $path : $path);
-    }
-
 
     /**
      * Bootstrap the application container.
@@ -99,25 +44,83 @@ class Application extends Container
     }
 
     /**
+     * Get the path to the application "app" directory.
+     *
+     * @return string
+     */
+    public function path(): string
+    {
+        return $this->basePath . DIRECTORY_SEPARATOR . 'app';
+    }
+
+    public static function version(): string
+    {
+        return static::VERSION;
+    }
+
+    /**
+     * Get the base path for the application.
+     *
+     * @param string|null $path
+     *
+     * @return string
+     */
+    public function basePath(string $path = null): string
+    {
+        if (isset($this->basePath)) {
+            return $this->basePath . ($path ? '/' . $path : $path);
+        }
+        if ($this->runningInConsole()) {
+            $this->basePath = getcwd();
+        } else {
+            $this->basePath = realpath(getcwd() . '/../');
+        }
+
+        return $this->basePath($path);
+    }
+
+    /**
      * Determine if the application is running in the console.
      *
      * @return bool
      */
-    public function runningInConsole()
+    public function runningInConsole(): bool
     {
-        return php_sapi_name() == 'cli';
+        return php_sapi_name() === 'cli';
+    }
+
+    /**
+     * Get the database path for the application.
+     *
+     * @return string
+     */
+    public function databasePath(): string
+    {
+        return database_path();
+    }
+
+    /**
+     * Get the storage path for the application.
+     *
+     * @param string|null $path
+     *
+     * @return string
+     */
+    public function storagePath(string $path = null): string
+    {
+        return storage_path($path);
     }
 
     /**
      * Detect the application's current environment.
      *
-     * @param  array|string $environments
+     * @param array|string $environments
      *
      * @return string
      */
-    public function detectEnvironment($environments)
+    public function detectEnvironment($environments): string
     {
-        $args = isset($_SERVER['argv']) ? $_SERVER['argv'] : null;
+        $args = $_SERVER['argv'] ?? null;
         if (php_sapi_name() == 'cli' && !is_null($value = $this->getEnvironmentArgument($args))) {
             //running in console and env param is set
             return $this['env'] = head(array_slice(explode('=', $value), 1));
@@ -135,7 +138,9 @@ class Application extends Container
                     // environments and look for the host that matches the host for this request we
                     // are currently processing here, then return back these environment's names.
                     foreach ((array)$hosts as $host) {
-                        if (str_is($host, gethostname())) return $this['env'] = $environment;
+                        if (str_is($host, gethostname())) {
+                            return $this['env'] = $environment;
+                        }
                     }
                 }
             } elseif (is_string($environments)) {
@@ -149,15 +154,18 @@ class Application extends Container
     /**
      * Get the environment argument from the console.
      *
-     * @param  array $args
+     * @param array $args
      *
      * @return string|null
      */
-    private function getEnvironmentArgument(array $args)
+    private function getEnvironmentArgument(array $args): ?string
     {
-        return array_first($args, function ($k, $v) {
-            return starts_with($v, '--env');
-        });
+        return array_first(
+            $args,
+            function ($k, $v) {
+                return starts_with($v, '--env');
+            }
+        );
     }
 
     public function environment()
@@ -168,7 +176,7 @@ class Application extends Container
     /**
      * Bind the installation paths to the application.
      *
-     * @param  array $paths
+     * @param array $paths
      *
      * @return void
      */
@@ -187,7 +195,8 @@ class Application extends Container
     /**
      * Register an application error handler.
      *
-     * @param  Closure $callback
+     * @param Closure $callback
+     *
      * @return void
      */
     public function error(Closure $callback)
@@ -204,4 +213,4 @@ class Application extends Container
     {
         return getAppNamespace();
     }
-} 
+}
