@@ -12,11 +12,12 @@ define('APP_START', microtime(true));
 | loading of any our classes "manually". Feels great to relax.
 |
 */
+require __DIR__.'/helpers.php';
 define('BASE', dirname(__DIR__));
-
 require BASE . '/vendor/autoload.php';
 
 use Bootstrap\Config\Config;
+use Bootstrap\Console\PackageManifest;
 use Bootstrap\Container\Application;
 use Illuminate\Cache\CacheManager;
 use Illuminate\Database\Capsule\Manager as Database;
@@ -26,7 +27,6 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Queue\Capsule\Manager as Queue;
 use Illuminate\Support\Facades\Facade;
-use Illuminate\Support\Str;
 use Luracast\Restler\Defaults;
 use Luracast\Restler\Format\HtmlFormat;
 use Luracast\Restler\Scope;
@@ -34,85 +34,7 @@ use Luracast\Restler\UI\Bootstrap3Form;
 use Luracast\Restler\UI\Forms;
 
 
-/*
-|--------------------------------------------------------------------------
-| Some of the commonly expected functions
-|--------------------------------------------------------------------------
-*/
-
-if (!function_exists('app')) {
-    /**
-     * Get the available container instance.
-     *
-     * @param string $make
-     * @param array $parameters
-     *
-     * @return mixed|Application
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    function app($make = null, $parameters = [])
-    {
-        if (is_null($make)) {
-            return Application::getInstance();
-        }
-
-        return Application::getInstance()->make($make, $parameters);
-    }
-}
-
-if (!function_exists('env')) {
-    /**
-     * Gets the value of an environment variable. Supports boolean, empty and null.
-     *
-     * @param string $key
-     * @param mixed $default
-     *
-     * @return mixed
-     */
-    function env($key, $default = null)
-    {
-        $value = getenv($key);
-        if ($value === false) {
-            return value($default);
-        }
-        switch (strtolower($value)) {
-            case 'true':
-            case '(true)':
-                return true;
-            case 'false':
-            case '(false)':
-                return false;
-            case 'empty':
-            case '(empty)':
-                return '';
-            case 'null':
-            case '(null)':
-                return;
-        }
-        if (strlen($value) > 1 && Str::startsWith($value, '"') && Str::endsWith($value, '"')) {
-            return substr($value, 1, -1);
-        }
-
-        return $value;
-    }
-}
-
-if (!function_exists('getAppNamespace')) {
-    function getAppNamespace()
-    {
-        $composer = json_decode(file_get_contents(BASE . '/composer.json'), true);
-        foreach ((array)data_get($composer, 'autoload.psr-4') as $namespace => $path) {
-            foreach ((array)$path as $pathChoice) {
-                if (realpath(BASE . '/' . 'app') == realpath(BASE . '/' . $pathChoice)) {
-                    return $namespace;
-                }
-            }
-        }
-        throw new RuntimeException("Unable to detect application namespace.");
-    }
-}
-
-$app = new Application();
+$app = new Application(BASE);
 
 /*
 |--------------------------------------------------------------------------
@@ -129,62 +51,9 @@ if (file_exists(BASE . '/.env')) {
     $dotenv->load();
 }
 
-$env = $app->detectEnvironment(
-    function () {
-        return getenv('APP_ENV') ?: 'development';
-    }
-);
+$env = $app->detectEnvironment(getenv('APP_ENV') ?: 'development');
 
-$app['app'] = $app;
 Facade::setFacadeApplication($app);
-
-/*
-|--------------------------------------------------------------------------
-| Bind Paths
-|--------------------------------------------------------------------------
-|
-| Here we are binding the paths configured in paths.php to the app. You
-| should not be changing these here. If you need to change these you
-| may do so within the paths.php file and they will be bound here.
-|
-*/
-
-$app->bindInstallPaths(require __DIR__ . '/paths.php');
-
-if (!function_exists('base_path')) {
-    function base_path($path = '')
-    {
-        return app('path.base') . ($path ? DIRECTORY_SEPARATOR . $path : $path);
-    }
-}
-
-if (!function_exists('storage_path')) {
-    function storage_path($path = '')
-    {
-        return app('path.storage') . ($path ? DIRECTORY_SEPARATOR . $path : $path);
-    }
-}
-
-if (!function_exists('config_path')) {
-    function config_path($path = '')
-    {
-        return app('path.config') . ($path ? DIRECTORY_SEPARATOR . $path : $path);
-    }
-}
-
-if (!function_exists('database_path')) {
-    function database_path($path = '')
-    {
-        return app('path.database') . ($path ? DIRECTORY_SEPARATOR . $path : $path);
-    }
-}
-
-if (!function_exists('resolve')) {
-    function resolve($name, array $parameters = [])
-    {
-        return app($name, $parameters);
-    }
-}
 
 $app->instance('config', new Config(app('path.config'), $env));
 
@@ -215,6 +84,12 @@ $app->singleton(
     }
 );
 
+$app->singleton(PackageManifest::class, function () use ($app) {
+    return new PackageManifest(
+        new Filesystem, $app->basePath(), $app->getCachedPackagesPath()
+    );
+});
+
 $app->singleton(
     'db',
     function () use ($app) {
@@ -224,7 +99,7 @@ $app->singleton(
         $db = new Database($app);
         $config['database.fetch'] = $fetch;
         $config['database.default'] = $default;
-        $db->addConnection($config['database.connections'][$default]);
+        $db->addConnection($config["database.connections.$default"]);
         $db->setEventDispatcher($app['events']);
         $db->setAsGlobal();
         $db->bootEloquent();
@@ -262,15 +137,6 @@ $app->singleton(
         return $app['queue']->connection();
     }
 );
-
-if (!function_exists('config')) {
-    function config($path, $default = null)
-    {
-        if (is_string($path)) {
-            return app()['config'][$path] ?? $default;
-        }
-    }
-}
 
 /*
 |--------------------------------------------------------------------------
@@ -326,7 +192,7 @@ spl_autoload_register(
             return true;
         }
         if (Jenssegers\Mongodb\Eloquent\Model::class === $className) {
-            include __DIR__ . '/../vendor/jenssegers/mongodb/src/Jenssegers/Mongodb/Eloquent/Model.php';
+            //include __DIR__ . '/../vendor/jenssegers/mongodb/src/Jenssegers/Mongodb/Eloquent/Model.php';
             $app['db'];
             return true;
         }
